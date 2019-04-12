@@ -8,10 +8,11 @@ class InitializationError(Exception):
         self.message = message
 
 class Particle(object):
-    def __init__(self, x, y, z, vx=0, vy=0, vz=0, ax=0, ay=0, az=0):
-        self.x = [x, y, z]
-        self.v = [vx, vy, vz]
-        self.a = [ax, ay, az]
+    def __init__(self, x, y, z, vx=0, vy=0, vz=0, ax=0, ay=0, az=0, particle_type='reactant'):
+        self.x = [x, y, z]                      # position
+        self.v = [vx, vy, vz]                   # velocity
+        self.a = [ax, ay, az]                   # acceleration
+        self.particle_type = particle_type      # records whether the particle is a reactant or product
 
     def set_velocities(self, vx, vy, vz):
         self.v = [vx, vy, vz]
@@ -23,13 +24,16 @@ class Particle(object):
         return f'Particle - position: ({self.x[0]:.4f}, {self.x[1]:.4f}, {self.x[2]:.4f}) velocities: ({self.v})\n'
 
 class Model(object):
-    def __init__(self, n_particles=125, t=1, rho=0.6, b=3, n_steps=1000, r_cut=3.5, dt=0.001):
+    def __init__(self, n_particles=125, t=10, rho=0.6, b=3, n_steps=1000,
+                    r_cut=3.5, dt=0.001, reactivity=0, rxn_cutoff=0.8):
         self.n_particles = n_particles          # number of particles in the simulation
         self.t = t                              # dimensionless system temperature
         self.rho = rho                          # dimensionless system density
         self.n_steps = n_steps                  # number of steps to simulate
         self.radius_cutoff = r_cut              # cutoff radius
         self.dt = dt                            # dimensionless simulation time step
+        self.rxn_cutoff = rxn_cutoff            # The maximum radius at which reactions can occur
+        self.reactivity = reactivity            # the chance that two particles within the cutoff radius will react
         self.b = b
         self.volume = self.n_particles/rho      # volume of the simulation cube
         self.cube_length = self.volume**(1/3)   # length of a side of the cube
@@ -50,16 +54,24 @@ class Model(object):
 
     def scale_velocities(self):
         '''Scale velocities to maintain a desired temperature.'''
+        t = 2/3*self.kinetic_energy/self.n_particles
+        scaler = (self.t / t) ** (0.5)
+        for p in self.particles:
+            for i in range(self.nd):
+                p.v[i] = p.v[i]*scaler
 
-    def _update_accelerations(self):
+    def _update_accelerations_and_react(self):
         '''Update the accelerations'''
         # Zero out the accelerations
         for p in self.particles:
             for i in range(self.nd):
                 p.a[i] = 0
 
-        for i in range(self.n_particles - 1):
-            for j in range(i+1, self.n_particles):
+        n_particles = self.n_particles # this number will change as rxns occur
+        i = 0
+        while i < n_particles - 1:
+            j = i+1
+            while j < n_particles:
                 p = self.particles[i]
                 n = self.particles[j]
                 dist_squared = 0
@@ -87,6 +99,25 @@ class Model(object):
                         n.a[k] += forces[k]
                     self.potential_energy += u
                     self.virial += force*dist
+                if (dist <= self.rxn_cutoff) and (p.particle_type == 'reactant') and (n.particle_type == 'reactant'): # particles are close enough to react
+                    print('Close enough to react')
+                    if random() < self.reactivity: # reaction occurs
+                        print('Reaction occured')
+                        # i += 1
+                        # update first particle
+                        for k in range(self.nd):
+                            p.particle_type = 'product'
+                            p.x[k] = (p.x[k] + n.x[k])/2
+                            p.v[k] = (p.v[k] + n.v[k])/2
+                            p.a[k] = (p.a[k] + n.a[k])/2
+
+                        # remove second particle
+                        self.particles.remove(n)
+                        self.n_particles -= 1
+                        n_particles -= 1
+                        j -= 1 # we have removed an element, so should step back
+                j += 1
+            i += 1
 
 
     def step(self):
@@ -105,14 +136,16 @@ class Model(object):
                 p.x[i] = new_pos
                 p.v[i] = p.v[i] + p.a[i]*self.dt/2
 
-        # Calculate Accelerations
-        self._update_accelerations()
+        # Calculate Accelerations and perform reactions
+        self._update_accelerations_and_react()
 
         # finish updating velocities
         for p in self.particles:
             for i in range(self.nd):
                 p.v[i] = p.v[i] + 0.5*p.a[i] * self.dt
                 self.kinetic_energy += 0.5*p.v[i]**2
+
+
 
         # Update model history
         self.kinetic_energy_hist.append(self.kinetic_energy)
@@ -170,7 +203,7 @@ class Model(object):
         print(f"Net velocity: {v_total}")
 
 
-    def run(self, plot=False):
+    def run(self, plot=False, saved_plot_path=''):
         '''Run the simulation'''
         # Keeps vars in scope
         fig = 0
@@ -184,13 +217,16 @@ class Model(object):
         for i in range(self.n_steps):
             print(f'Step {i}')
             self.step()
+            if i > 130:
+                self.scale_velocities()
             # Update dynamic plots every now and then
             plt.clf()
             ax = fig.add_subplot(211, projection='3d')
             ax.scatter(
                 [p.x[0] for p in self.particles],
                 [p.x[1] for p in self.particles],
-                [p.x[2] for p in self.particles]
+                [p.x[2] for p in self.particles],
+                c=['b' if p.particle_type == 'reactant' else 'r' for p in self.particles]
             )
             ax.set_xlabel('X')
             ax.set_xlim3d(-0.5*self.cube_length, 0.5*self.cube_length)
@@ -207,14 +243,14 @@ class Model(object):
             plt.draw()
             plt.grid()
             plt.pause(0.05)
-        if plot:
-            plt.savefig('fancy_plot.png')
+        if saved_plot_path:
+            plt.savefig(saved_plot_path)
 
     def __repr__(self):
         return ''.join([p.__repr__() for p in self.particles])
 
 
 if __name__ == "__main__":
-    m = Model(n_steps=1000)
+    m = Model(n_steps=1000, reactivity=0.7)
     m.initialize()
-    m.run(plot=True)
+    m.run(plot=True, saved_plot_path='run_log.png')
