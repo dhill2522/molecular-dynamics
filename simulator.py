@@ -35,6 +35,9 @@ class Model(object):
         self.rxn_cutoff = rxn_cutoff            # The maximum radius at which reactions can occur
         self.reactivity = reactivity            # the chance that two particles within the cutoff radius will react
         self.b = b
+        self.n_rxns = 0                         # number of reactions that have occured
+        self.n_reactants = n_particles          # number of reactant particles
+        self.n_products = 0                     # number of product particles
         self.volume = self.n_particles/rho      # volume of the simulation cube
         self.cube_length = self.volume**(1/3)   # length of a side of the cube
         self.particles = []
@@ -47,6 +50,12 @@ class Model(object):
         self.total_energy = []
         self.virial_hist = []
         self.time = []
+        self.rxns_hist = []
+        self.particles_hist = []
+        self.reactants_hist = []
+        self.products_hist = []
+        self.step_number = 0
+        self.eq_step = 80
 
         # Check to make sure n_particles^(1/3) is an integer
         if (int(round(self.n_particles**(1/3)))**3 != self.n_particles):
@@ -101,20 +110,23 @@ class Model(object):
                     self.virial += force*dist
                 if (dist <= self.rxn_cutoff) and (p.particle_type == 'reactant') and (n.particle_type == 'reactant'): # particles are close enough to react
                     print('Close enough to react')
-                    if random() < self.reactivity: # reaction occurs
+                    if random() < self.reactivity and (self.step_number > self.eq_step): # reaction occurs
                         print('Reaction occured')
                         # i += 1
                         # update first particle
                         for k in range(self.nd):
                             p.particle_type = 'product'
-                            p.x[k] = (p.x[k] + n.x[k])/2
+                            p.x[k] = p.x[k] # using the average here sometimes causes overlap with other reactants
                             p.v[k] = (p.v[k] + n.v[k])/2
                             p.a[k] = (p.a[k] + n.a[k])/2
 
-                        # remove second particle
+                        # remove second particle and update model
                         self.particles.remove(n)
                         self.n_particles -= 1
+                        self.n_products += 1
+                        self.n_reactants -= 2
                         n_particles -= 1
+                        self.n_rxns += 1
                         j -= 1 # we have removed an element, so should step back
                 j += 1
             i += 1
@@ -145,13 +157,22 @@ class Model(object):
                 p.v[i] = p.v[i] + 0.5*p.a[i] * self.dt
                 self.kinetic_energy += 0.5*p.v[i]**2
 
+        if self.kinetic_energy > 10000000:
+            print('Error happening!')
 
+
+# [0.0646082174210032, 2.476747695917558, -2.322502266285092]
+# [0.22448409390281446, 2.5081045789910705, -2.331117745959002]
 
         # Update model history
         self.kinetic_energy_hist.append(self.kinetic_energy)
         self.potential_energy_hist.append(self.potential_energy)
         self.virial_hist.append(self.virial)
         self.total_energy.append(self.kinetic_energy + self.potential_energy)
+        self.rxns_hist.append(self.n_rxns)
+        self.products_hist.append(self.n_products)
+        self.reactants_hist.append(self.n_reactants)
+        self.particles_hist.append(self.n_particles)
         if self.time:
             self.time.append(self.time[-1]+self.dt)
         else:
@@ -215,13 +236,14 @@ class Model(object):
             plt.show()
 
         for i in range(self.n_steps):
-            print(f'Step {i}')
+            self.step_number = i
+            print(f'Step {self.step_number}')
             self.step()
-            if i > 130:
+            if self.step_number > self.eq_step:
                 self.scale_velocities()
             # Update dynamic plots every now and then
             plt.clf()
-            ax = fig.add_subplot(211, projection='3d')
+            ax = fig.add_subplot(311, projection='3d')
             ax.scatter(
                 [p.x[0] for p in self.particles],
                 [p.x[1] for p in self.particles],
@@ -234,14 +256,22 @@ class Model(object):
             ax.set_zlim3d(-0.5*self.cube_length, 0.5*self.cube_length)
             ax.set_ylabel('Y')
             ax.set_zlabel('Z')
-            ax = fig.add_subplot(212)
+            ax = fig.add_subplot(312)
             plt.plot(self.time, self.kinetic_energy_hist, label='Kinetic energy')
             plt.plot(self.time, self.potential_energy_hist, label='Potential energy')
             # plt.plot(self.time, self.virial_hist, label='Virial')
             plt.plot(self.time, self.total_energy, label='Total energy')
             plt.legend()
-            plt.draw()
             plt.grid()
+            ax = fig.add_subplot(313)
+            plt.plot(self.time, self.rxns_hist, label='Reactions')
+            plt.plot(self.time, self.reactants_hist, label='Reactants')
+            plt.plot(self.time, self.products_hist, label='Products')
+            plt.plot(self.time, self.particles_hist, label='Total particles')
+            plt.legend()
+            plt.grid()
+
+            plt.draw()
             plt.pause(0.05)
         if saved_plot_path:
             plt.savefig(saved_plot_path)
@@ -251,6 +281,6 @@ class Model(object):
 
 
 if __name__ == "__main__":
-    m = Model(n_steps=1000, reactivity=0.7)
+    m = Model(n_steps=1000, reactivity=0.7, t=10)
     m.initialize()
     m.run(plot=True, saved_plot_path='run_log.png')
