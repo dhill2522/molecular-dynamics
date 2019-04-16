@@ -34,13 +34,12 @@ class Model(object):
         self.dt = dt                            # dimensionless simulation time step
         self.rxn_cutoff = rxn_cutoff            # The maximum radius at which reactions can occur
         self.reactivity = reactivity            # the chance that two particles within the cutoff radius will react
-        self.b = b
-        self.n_rxns = 0                         # number of reactions that have occured
         self.n_reactants = n_particles          # number of reactant particles
         self.n_products = 0                     # number of product particles
         self.volume = self.n_particles/rho      # volume of the simulation cube
         self.cube_length = self.volume**(1/3)   # length of a side of the cube
         self.particles = []
+        self.n_rxns = 0                         # number of reactions that have occured
         self.kinetic_energy = 0
         self.potential_energy = 0
         self.virial = 0
@@ -108,15 +107,13 @@ class Model(object):
                         n.a[k] += forces[k]
                     self.potential_energy += u
                     self.virial += force*dist
-                if (dist <= self.rxn_cutoff) and (p.particle_type == 'reactant') and (n.particle_type == 'reactant'): # particles are close enough to react
-                    print('Close enough to react')
-                    if random() < self.reactivity and (self.step_number > self.eq_step): # reaction occurs
-                        print('Reaction occured')
-                        # i += 1
+                if (dist <= self.rxn_cutoff) and (p.particle_type == 'reactant') \
+                                                and (n.particle_type == 'reactant'):
+                    if random() < self.reactivity and (self.step_number > self.eq_step):
                         # update first particle
                         for k in range(self.nd):
                             p.particle_type = 'product'
-                            p.x[k] = p.x[k] # using the average here sometimes causes overlap with other reactants
+                            p.x[k] = p.x[k] # use avg to prevent potential overlap
                             p.v[k] = (p.v[k] + n.v[k])/2
                             p.a[k] = (p.a[k] + n.a[k])/2
 
@@ -156,13 +153,6 @@ class Model(object):
             for i in range(self.nd):
                 p.v[i] = p.v[i] + 0.5*p.a[i] * self.dt
                 self.kinetic_energy += 0.5*p.v[i]**2
-
-        if self.kinetic_energy > 10000000:
-            print('Error happening!')
-
-
-# [0.0646082174210032, 2.476747695917558, -2.322502266285092]
-# [0.22448409390281446, 2.5081045789910705, -2.331117745959002]
 
         # Update model history
         self.kinetic_energy_hist.append(self.kinetic_energy)
