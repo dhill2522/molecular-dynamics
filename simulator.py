@@ -111,9 +111,9 @@ class Model(object):
                                                 and (n.particle_type == 'reactant'):
                     if random() < self.reactivity and (self.step_number > self.eq_step):
                         # update first particle
+                        p.particle_type = 'product'
                         for k in range(self.nd):
-                            p.particle_type = 'product'
-                            p.x[k] = p.x[k] # use avg to prevent potential overlap
+                            # Position does not change to prevent overlap
                             p.v[k] = (p.v[k] + n.v[k])/2
                             p.a[k] = (p.a[k] + n.a[k])/2
 
